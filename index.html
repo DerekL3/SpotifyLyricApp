@@ -312,22 +312,51 @@ function onTrack(item){
 function cleanTitle(s){
   return s.replace(/\s*[-\u2013]\s*(\d{4}\s*)?(remaster(ed)?|live|mono|stereo|single|radio|deluxe|version|edit).*$/i, '').replace(/\s*\((feat|with)[^)]*\)/i, '').trim();
 }
+const norm = s => (s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+async function getJSON(url){ const r = await fetch(url); return r.ok ? r.json() : null; }
+function choose(list, dur, strict){
+  const c = list.filter(x => !strict || Math.abs((x.duration || 0) - dur) <= 8);
+  c.sort((a, b) => (!!b.syncedLyrics - !!a.syncedLyrics) || (Math.abs((a.duration || 0) - dur) - Math.abs((b.duration || 0) - dur)));
+  return c[0] || null;
+}
 async function fetchLyrics(item){
   const dur = Math.round(item.duration_ms / 1000);
-  const artist = item.artists[0].name;
-  const exact = await fetch(LRC + '/get?' + new URLSearchParams({
-    track_name: item.name, artist_name: artist, album_name: item.album ? item.album.name : '', duration: dur
-  }));
-  if (exact.ok) return await exact.json();
-  const s = await fetch(LRC + '/search?' + new URLSearchParams({ track_name: cleanTitle(item.name), artist_name: artist }));
-  if (!s.ok) return null;
-  const list = (await s.json()).filter(x => Math.abs((x.duration || 0) - dur) <= 8);
-  list.sort((a,b) => (!!b.syncedLyrics - !!a.syncedLyrics) || (Math.abs(a.duration-dur) - Math.abs(b.duration-dur)));
-  return list[0] || null;
+  const artists = item.artists.map(a => a.name).slice(0, 2);
+  const album = item.album ? item.album.name : '';
+
+  // 1. Exact match on title, artist, album and length
+  const exact = await getJSON(LRC + '/get?' + new URLSearchParams({ track_name: item.name, artist_name: artists[0], album_name: album, duration: dur }));
+  if (exact && (exact.syncedLyrics || exact.plainLyrics || exact.instrumental)) return exact;
+
+  // 2. Wider searches: several spellings of the title, each listed artist, then free text
+  const titles = [...new Set([
+    cleanTitle(item.name),
+    item.name.replace(/\s*[\(\[][^)\]]*[\)\]]/g, '').trim(),
+    item.name
+  ])].filter(Boolean);
+  const artistNorm = artists.map(norm);
+  const sameArtist = x => { const a = norm(x.artistName); return !!a && artistNorm.some(n => n && (a.includes(n) || n.includes(a))); };
+  const queries = [];
+  for (const t of titles) for (const a of artists) queries.push({ track_name: t, artist_name: a });
+  for (const t of titles) queries.push({ q: t + ' ' + artists[0] });
+  for (const t of titles.slice(0, 2)) queries.push({ q: t });
+
+  const seen = new Set(); const pool = [];
+  for (const q of queries) {
+    const key = JSON.stringify(q); if (seen.has(key)) continue; seen.add(key);
+    const list = await getJSON(LRC + '/search?' + new URLSearchParams(q));
+    if (!list) continue;
+    const ok = list.filter(sameArtist);
+    pool.push(...ok);
+    const best = choose(ok, dur, true);
+    if (best && best.syncedLyrics) return best;
+  }
+  // 3. Best of everything found: right length first, then any version as plain text
+  return choose(pool, dur, true) || choose(pool, dur, false);
 }
 async function loadLyrics(item){
   const my = ++loadToken;
-  showState('Finding lyrics', 'Looking for a timed version of this song.');
+  showState('Finding lyrics', 'Searching for a timed version of this song.');
   let data;
   try { data = await fetchLyrics(item); }
   catch(e){
@@ -336,14 +365,18 @@ async function loadLyrics(item){
     return;
   }
   if (my !== loadToken) return;
-  if (!data) { showState('No lyrics found', 'The lyrics source is community-run, so new or rare songs can be missing.'); return; }
+  const none = () => showState('No lyrics found', 'I tried several spellings of the title and artist. This song may not be in the community lyrics database yet.');
+  if (!data) { none(); return; }
   if (data.instrumental) { showState('Instrumental', 'This song has no lyrics.'); return; }
-  if (data.syncedLyrics) {
+  const dur = Math.round(item.duration_ms / 1000);
+  const timingOk = Math.abs((data.duration || 0) - dur) <= 8;
+  if (data.syncedLyrics && timingOk) {
     lines = parseLRC(data.syncedLyrics);
     if (lines.length) { synced = true; renderLines(); tick(); return; }
   }
-  if (data.plainLyrics) { renderPlain(data.plainLyrics); return; }
-  showState('No lyrics found', 'The lyrics source is community-run, so new or rare songs can be missing.');
+  const plain = data.plainLyrics || (data.syncedLyrics ? data.syncedLyrics.replace(/\[[^\]]*\]\s*/g, '') : '');
+  if (plain) { renderPlain(plain); return; }
+  none();
 }
 function parseLRC(text){
   const out = [];
