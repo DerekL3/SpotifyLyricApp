@@ -84,7 +84,7 @@ header{display:flex;align-items:center;gap:12px;padding:12px 12px 6px 16px}
 .ctl.main svg{width:34px;height:34px}
 .ctl:active{transform:scale(.92)}
 
-#toast{position:fixed;left:50%;bottom:calc(190px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#efeaff;color:#1b1436;padding:10px 16px;border-radius:12px;font-weight:600;font-size:.92rem;max-width:88vw;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:20}
+#toast{position:fixed;left:50%;bottom:calc(190px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#efeaff;color:#1b1436;padding:10px 16px;border-radius:12px;font-weight:600;font-size:.92rem;max-width:88vw;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:60}
 
 /* ---------- settings sheet ---------- */
 #sheet{position:fixed;inset:0;z-index:30;background:rgba(8,6,20,.6);display:flex;align-items:flex-end}
@@ -96,6 +96,28 @@ header{display:flex;align-items:center;gap:12px;padding:12px 12px 6px 16px}
 .seg .btn{flex:1;padding:0 4px;font-size:.9rem}
 .seg .btn.on{background:var(--accent);color:var(--accent-ink)}
 .btn.danger{background:rgba(255,120,100,.16);color:#ffb4a8}
+
+
+/* ---------- own lyrics editor ---------- */
+.btn:disabled{opacity:.4}
+.notice .btn{margin-top:8px;display:block;min-height:40px;font-size:.9rem}
+#editor{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:calc(18px + env(safe-area-inset-top,0px)) 20px calc(22px + env(safe-area-inset-bottom,0px))}
+.ed-wrap{max-width:560px;margin:0 auto;display:grid;gap:14px}
+.ed-wrap h2{margin:0;font-size:1.5rem;font-weight:800;line-height:1.15}
+.ed-song{margin:0;color:var(--dim)}
+#edText{width:100%;min-height:40vh;min-height:40dvh;border-radius:14px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:var(--ink);padding:14px;font-family:inherit;font-size:1rem;line-height:1.5}
+.ed-hint,.ed-help{margin:0;color:var(--dim);line-height:1.45}
+.ed-hint{min-height:1.45em}
+.ed-actions{display:grid;gap:10px}
+.ed-actions .btn.primary{width:100%}
+.sync-view{display:flex;flex-direction:column;gap:14px;min-height:calc(100vh - 60px);min-height:calc(100dvh - 60px)}
+.sync-lines{flex:1;display:flex;flex-direction:column;justify-content:center;gap:16px}
+#sPrev,#sNext{color:var(--dim);font-size:1.1rem;line-height:1.3;min-height:1.4em;opacity:.7}
+#sCur{font-size:2rem;font-weight:800;line-height:1.15;overflow-wrap:break-word}
+#sCount{color:var(--dim);font-size:.9rem}
+.tap{width:100%;min-height:32vh;min-height:32dvh;border:0;border-radius:22px;background:var(--accent);color:var(--accent-ink);font-family:inherit;font-size:1.5rem;font-weight:800;touch-action:manipulation}
+.tap:active{transform:scale(.98)}
+.sync-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -167,8 +189,64 @@ header{display:flex;align-items:center;gap:12px;padding:12px 12px 6px 16px}
           <button class="btn" data-s="1.5" type="button">Huge</button>
         </div>
       </div>
+      <button class="btn" id="editLyrics" type="button">Add or edit lyrics for this song</button>
       <button class="btn danger" id="signout" type="button">Sign out of Spotify</button>
       <button class="btn" id="closeSheet" type="button">Done</button>
+    </div>
+  </div>
+  <div id="editor" hidden>
+    <div class="ed-wrap">
+      <div id="edPaste">
+        <div class="ed-wrap">
+          <h2>Lyrics for this song</h2>
+          <p class="ed-song" id="edSong"></p>
+          <textarea id="edText" spellcheck="false" placeholder="Paste the lyrics here, one line per row. Timed lyrics in .lrc format work too."></textarea>
+          <p class="ed-hint" id="edHint"></p>
+          <div class="ed-actions">
+            <button class="btn primary" id="edSyncBtn" type="button">Time it by tapping along</button>
+            <button class="btn primary" id="edSaveLrc" type="button">Save timed lyrics</button>
+            <button class="btn" id="edSavePlain" type="button">Save as plain text</button>
+            <button class="btn danger" id="edDelete" type="button">Delete my lyrics for this song</button>
+            <button class="btn" id="edCancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="edSync" hidden>
+        <div id="syncStart" class="ed-wrap">
+          <h2>Ready to time the song</h2>
+          <p class="ed-help">You will tap one big button at the moment each line starts being sung. It works best from the very beginning of the song, and you can undo a bad tap.</p>
+          <div class="ed-actions">
+            <button class="btn primary" id="syncRestart" type="button">Restart the song and start</button>
+            <button class="btn" id="syncNow" type="button">Start from where it is now</button>
+            <button class="btn" id="syncBack" type="button">Back to the lyrics</button>
+          </div>
+        </div>
+
+        <div id="syncRun" class="sync-view" hidden>
+          <div class="sync-lines">
+            <div id="sPrev"></div>
+            <div id="sCur"></div>
+            <div id="sNext"></div>
+            <div id="sCount"></div>
+          </div>
+          <button class="tap" id="tapBtn" type="button">Tap when this line starts</button>
+          <div class="sync-row">
+            <button class="btn" id="syncUndo" type="button">Undo last tap</button>
+            <button class="btn" id="syncCancel" type="button">Cancel</button>
+          </div>
+        </div>
+
+        <div id="syncDone" class="ed-wrap" hidden>
+          <h2>All lines are timed</h2>
+          <p class="ed-help">Save them and the song will play back in sync right away. If it runs a little early or late, use Lyrics timing in the settings menu.</p>
+          <div class="ed-actions">
+            <button class="btn primary" id="syncSave" type="button">Save timed lyrics</button>
+            <button class="btn" id="syncDoneUndo" type="button">Undo last tap</button>
+            <button class="btn" id="syncRedo" type="button">Start over</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -194,6 +272,7 @@ let scale = Number(LS.get('lp_scale') || 1);
 let st = { id:null, playing:false, pos:0, dur:0, at:0 };
 let lines = [], lineEls = [], synced = false, curIdx = -2;
 let loadToken = 0, userScrollUntil = 0, idleShown = false, started = false;
+let curItem = null, edId = null, edLines = [], stamps = [], sIdx = 0, syncPoll = null;
 
 /* ---------- helpers ---------- */
 function view(name){ $('#setup').hidden = name !== 'setup'; $('#app').hidden = name !== 'app'; }
@@ -299,6 +378,7 @@ function tick(){
 
 /* ---------- track + lyrics ---------- */
 function onTrack(item){
+  curItem = item;
   $('#title').textContent = item.name;
   $('#artist').textContent = item.artists.map(a => a.name).join(', ');
   const imgs = (item.album && item.album.images) || [];
@@ -356,6 +436,8 @@ async function fetchLyrics(item){
 }
 async function loadLyrics(item){
   const my = ++loadToken;
+  const custom = loadCustom(item.id || item.uri);
+  if (custom) { applyCustom(custom); return; }
   showState('Finding lyrics', 'Searching for a timed version of this song.');
   let data;
   try { data = await fetchLyrics(item); }
@@ -365,7 +447,7 @@ async function loadLyrics(item){
     return;
   }
   if (my !== loadToken) return;
-  const none = () => showState('No lyrics found', 'I tried several spellings of the title and artist. This song may not be in the community lyrics database yet.');
+  const none = () => showState('No lyrics found', 'I tried several spellings of the title and artist. This song may not be in the community lyrics database yet.', 'Add lyrics', () => openEditor(''));
   if (!data) { none(); return; }
   if (data.instrumental) { showState('Instrumental', 'This song has no lyrics.'); return; }
   const dur = Math.round(item.duration_ms / 1000);
@@ -411,7 +493,9 @@ function renderLines(){
 function renderPlain(text){
   const box = $('#lyrics'); box.replaceChildren();
   const n = document.createElement('div'); n.className = 'notice';
-  n.textContent = 'These lyrics are not timed, so they will not follow along.'; box.append(n);
+  n.textContent = 'These lyrics are not timed, so they will not follow along.';
+  const tb = document.createElement('button'); tb.className = 'btn'; tb.type = 'button'; tb.textContent = 'Time them by tapping along';
+  tb.onclick = () => openEditor(text); n.append(tb); box.append(n);
   text.split('\n').forEach(t => {
     const d = document.createElement('div'); d.className = 'ln plain'; d.textContent = t || '\u00A0'; box.append(d);
   });
@@ -505,6 +589,105 @@ $('#connect').onclick = () => {
   const v = $('#clientInput').value.trim();
   if (!/^[a-z0-9]{32}$/i.test(v)) { $('#setupErr').textContent = 'A Client ID is 32 letters and numbers. Copy it from your app\u2019s settings page.'; return; }
   clientId = v; LS.set('lp_client', v); login();
+};
+
+/* ---------- your own lyrics ---------- */
+const ckey = id => 'lp_c_' + id;
+function loadCustom(id){ try { return JSON.parse(LS.get(ckey(id)) || 'null'); } catch(e){ return null; } }
+function applyCustom(c){
+  lines = []; lineEls = []; synced = false; curIdx = -2;
+  if (c && c.mode === 'synced' && c.lines && c.lines.length) { lines = c.lines; synced = true; renderLines(); tick(); }
+  else renderPlain((c && c.text) || '');
+}
+function parseInput(text){
+  const lrc = parseLRC(text);
+  if (lrc.length >= 3 && lrc.filter(l => l.text).length >= 2) return { type: 'lrc', lines: lrc };
+  return { type: 'plain', lines: text.split(/\r?\n/).map(x => x.trim()).filter(Boolean) };
+}
+function persist(obj){
+  try { localStorage.setItem(ckey(edId), JSON.stringify(obj)); return true; }
+  catch(e){ toast('Could not save on this phone. Check the browser storage settings.'); return false; }
+}
+function showEd(name){ $('#edPaste').hidden = name !== 'paste'; $('#edSync').hidden = name !== 'sync'; $('#editor').scrollTop = 0; }
+function showSub(name){ $('#syncStart').hidden = name !== 'start'; $('#syncRun').hidden = name !== 'run'; $('#syncDone').hidden = name !== 'done'; $('#editor').scrollTop = 0; }
+function stopSyncPoll(){ clearInterval(syncPoll); syncPoll = null; }
+function closeEditor(){ stopSyncPoll(); $('#editor').hidden = true; }
+function updateHint(){
+  const p = parseInput($('#edText').value), has = p.lines.length > 0;
+  $('#edHint').textContent = !has ? 'Paste the lyrics above, one line per row.'
+    : p.type === 'lrc' ? 'Timed lyrics detected (' + p.lines.length + ' lines). They will play in sync as written.'
+    : p.lines.length + ' lines of plain text. Save them as they are, or tap along to time them.';
+  $('#edSaveLrc').hidden = !(has && p.type === 'lrc');
+  $('#edSyncBtn').hidden = !(has && p.type === 'plain');
+  $('#edSavePlain').hidden = !(has && p.type === 'plain');
+}
+function openEditor(prefill){
+  if (!st.id) { toast('Start a song in Spotify first.'); return; }
+  edId = st.id;
+  const c = loadCustom(edId);
+  let text = prefill;
+  if (text == null && c) text = c.mode === 'synced' ? c.lines.map(l => l.text).filter(Boolean).join('\n') : (c.text || '');
+  $('#edSong').textContent = $('#title').textContent + ' by ' + $('#artist').textContent;
+  $('#edText').value = text || '';
+  $('#edDelete').hidden = !c;
+  $('#sheet').hidden = true; $('#editor').hidden = false;
+  showEd('paste'); updateHint();
+}
+function savedAndClose(){
+  if (st.id === edId) applyCustom(loadCustom(edId));
+  closeEditor(); toast('Lyrics saved for this song.');
+}
+function renderSync(){
+  const n = edLines.length;
+  $('#sPrev').textContent = sIdx > 0 ? edLines[sIdx - 1] : '';
+  $('#sCur').textContent = edLines[sIdx] || '';
+  $('#sNext').textContent = edLines[sIdx + 1] || '';
+  $('#sCount').textContent = 'Line ' + Math.min(sIdx + 1, n) + ' of ' + n;
+  $('#syncUndo').disabled = sIdx === 0;
+}
+function beginRun(){ showSub('run'); renderSync(); stopSyncPoll(); syncPoll = setInterval(poll, 1000); }
+function tapStamp(){
+  if (!st.id || st.id !== edId) { toast('This is a different song now. Go back and reopen the lyrics editor.'); return; }
+  if (!st.playing) { toast('The song is paused. Press play in Spotify, then tap.'); return; }
+  if (sIdx >= edLines.length) return;
+  const prev = stamps.length ? stamps[stamps.length - 1] : 0;
+  stamps.push(Math.max(Math.round(nowMs()) - 200, prev + 50, 0));   // 200 ms allows for reaction time
+  sIdx++;
+  if (sIdx >= edLines.length) { stopSyncPoll(); showSub('done'); } else renderSync();
+}
+function undoTap(){ if (!sIdx) return; sIdx--; stamps.pop(); beginRun(); }
+
+$('#edText').addEventListener('input', updateHint);
+$('#editLyrics').onclick = () => openEditor();
+$('#edCancel').onclick = closeEditor;
+$('#edSaveLrc').onclick = () => { const p = parseInput($('#edText').value); if (persist({ mode: 'synced', lines: p.lines })) savedAndClose(); };
+$('#edSavePlain').onclick = () => { const p = parseInput($('#edText').value); if (persist({ mode: 'plain', text: p.lines.join('\n') })) savedAndClose(); };
+$('#edDelete').onclick = () => {
+  LS.del(ckey(edId)); closeEditor(); toast('Your lyrics for this song were deleted.');
+  if (st.id === edId && curItem) { lines = []; lineEls = []; synced = false; curIdx = -2; loadLyrics(curItem); }
+};
+$('#edSyncBtn').onclick = () => { edLines = parseInput($('#edText').value).lines; stamps = []; sIdx = 0; showEd('sync'); showSub('start'); };
+$('#syncBack').onclick = () => { stopSyncPoll(); showEd('paste'); };
+$('#syncNow').onclick = beginRun;
+$('#syncRestart').onclick = async () => {
+  const r = await api('PUT', '/me/player/seek?position_ms=0');
+  if (!r || !r.ok) { checkControl(r); return; }
+  st.pos = 0; st.at = performance.now();
+  if (!st.playing) {
+    const pr = await api('PUT', '/me/player/play');
+    if (pr && pr.ok) { st.playing = true; st.at = performance.now(); setPlayIcon(); }
+  }
+  beginRun();
+};
+$('#tapBtn').addEventListener('pointerdown', e => { e.preventDefault(); tapStamp(); });
+$('#tapBtn').addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tapStamp(); } });
+$('#syncUndo').onclick = undoTap;
+$('#syncDoneUndo').onclick = undoTap;
+$('#syncCancel').onclick = () => { stopSyncPoll(); showEd('paste'); };
+$('#syncRedo').onclick = () => { stamps = []; sIdx = 0; showSub('start'); };
+$('#syncSave').onclick = () => {
+  const out = edLines.map((text, i) => ({ t: stamps[i], text }));
+  if (persist({ mode: 'synced', lines: out })) savedAndClose();
 };
 
 /* ---------- wake lock ---------- */
